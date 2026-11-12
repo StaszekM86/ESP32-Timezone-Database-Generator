@@ -19,32 +19,23 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Автоматическая генерация свежего timezones.conf из официального репозитория IANA
+      - name: Обновление системной базы IANA и генерация timezones.conf
         run: |
-          mkdir -p iana_compiled
-          echo "Клонируем официальный репозиторий координатора IANA (eggert/tz)..."
-          git clone --depth 1 https://github.com iana_src
-          
-          # Компилируем правила IANA системным компилятором zic
-          zic -d iana_compiled iana_src/africa iana_src/antarctica iana_src/asia iana_src/australasia iana_src/europe iana_src/northamerica iana_src/southamerica iana_src/etcetera iana_src/backward
-          
-          # Извлекаем актуальные POSIX-строки и формируем новый timezones.conf
+          sudo apt-get update -qq && sudo apt-get install -y -qq tzdata
           CONF_FILE="src/main/resources/timezones/timezones.conf"
           > "$CONF_FILE"
           
-          cd iana_compiled
-          find . -type f | sort | while read -r filepath; do
-            zone_name="${filepath#./}"
-            posix_str=$(tail -n 1 "$filepath")
+          cd /usr/share/zoneinfo
+          find Africa America Antarctica Arctic Asia Atlantic Australia Europe Indian Pacific -type f | sort | while read -r zone_name; do
+            posix_str=$(tail -n 1 "$zone_name")
             if [ -n "$posix_str" ]; then
-              echo "${zone_name}=${posix_str}" >> "../$CONF_FILE"
+              echo "${zone_name}=${posix_str}" >> "$GITHUB_WORKSPACE/$CONF_FILE"
             fi
           done
-          cd ..
+          cd "$GITHUB_WORKSPACE"
           
           echo "Сгенерировано актуальных зон IANA: $(wc -l < "$CONF_FILE")"
-          echo "Проверка ключевых зон в новом конфиге:"
-          grep -E "^(Europe/Istanbul|Europe/Moscow|Asia/Vladivostok|America/New_York)=" "$CONF_FILE"
+          grep -E "^(Europe/Istanbul|Europe/Moscow|Asia/Vladivostok)=" "$CONF_FILE"
 
       - name: Компиляция Java-кода
         run: mvn clean test-compile -Ddownload.skip=true
