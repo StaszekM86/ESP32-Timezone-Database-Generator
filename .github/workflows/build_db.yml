@@ -19,17 +19,16 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Автоматическая генерация свежего timezones.conf из официальной базы IANA
+      - name: Автоматическая генерация свежего timezones.conf из официального репозитория IANA
         run: |
-          mkdir -p iana_src iana_compiled
-          echo "Скачиваем свежую базу правил IANA..."
-          curl -sL https://iana.org -o tzdata.tar.gz
-          tar -xzf tzdata.tar.gz -C iana_src
+          mkdir -p iana_compiled
+          echo "Клонируем официальный репозиторий координатора IANA (eggert/tz)..."
+          git clone --depth 1 https://github.com iana_src
           
           # Компилируем правила IANA системным компилятором zic
           zic -d iana_compiled iana_src/africa iana_src/antarctica iana_src/asia iana_src/australasia iana_src/europe iana_src/northamerica iana_src/southamerica iana_src/etcetera iana_src/backward
           
-          # Извлекаем актуальные POSIX-строки из каждого скомпилированного файла и формируем новый timezones.conf
+          # Извлекаем актуальные POSIX-строки и формируем новый timezones.conf
           CONF_FILE="src/main/resources/timezones/timezones.conf"
           > "$CONF_FILE"
           
@@ -44,8 +43,8 @@ jobs:
           cd ..
           
           echo "Сгенерировано актуальных зон IANA: $(wc -l < "$CONF_FILE")"
-          echo "Проверка Турции и Москвы в новом конфиге:"
-          grep -E "^(Europe/Istanbul|Europe/Moscow|Asia/Vladivostok)=" "$CONF_FILE"
+          echo "Проверка ключевых зон в новом конфиге:"
+          grep -E "^(Europe/Istanbul|Europe/Moscow|Asia/Vladivostok|America/New_York)=" "$CONF_FILE"
 
       - name: Компиляция Java-кода
         run: mvn clean test-compile -Ddownload.skip=true
