@@ -23,16 +23,16 @@ jobs:
         run: mvn clean test-compile -Ddownload.skip=true
 
       - name: Прямое скачивание и распаковка актуальных границ мира
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p target/classes/timezones.shapefile
           mkdir -p target/classes/output
           cp -r src/main/resources/* target/classes/
           
-          # Скачиваем актуальный релиз с GitHub API
-          LATEST_URL=$(curl -s https://github.com | grep "browser_download_url.*timezones\.shapefile\.zip\"" | cut -d '"' -f 4)
-          echo "Ссылка на архив границ: $LATEST_URL"
+          # Скачиваем актуальный архив границ через официальный GitHub CLI
+          gh release download --repo evansiroky/timezone-boundary-builder --pattern "*timezones.shapefile.zip" --output shapes.zip
           
-          curl -L "$LATEST_URL" -o shapes.zip
           unzip -q shapes.zip -d extracted_shapes
           
           # Находим .shp файл и переносим его со всеми индексами строго под именем combined-shapefile
@@ -47,8 +47,6 @@ jobs:
             fi
           done
           
-          echo "Содержимое папки target/classes/timezones/:"
-          ls -la target/classes/timezones/
           echo "Содержимое папки target/classes/timezones.shapefile/:"
           ls -la target/classes/timezones.shapefile/
 
