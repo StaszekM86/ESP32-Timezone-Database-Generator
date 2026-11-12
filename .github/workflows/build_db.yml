@@ -1,53 +1,50 @@
 name: Build Timezone Database
 
 on:
-  # Возможность запустить сборку вручную кнопкой в любой момент
   workflow_dispatch:
-  # Автоматический запуск 1-го числа каждого месяца в 03:00 UTC
   schedule:
     - cron: '0 3 1 * *'
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Скачивание кода репозитория
         uses: actions/checkout@v4
 
-      - name: Установка Java 17 (требуется в pom.xml)
+      - name: Установка Java 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Обновление ссылки на самые свежие границы мира (GitHub API)
+      - name: Обновление ссылки на свежие границы мира
         run: |
           LATEST_URL=$(curl -s https://github.com | grep "browser_download_url.*timezones\.shapefile\.zip\"" | cut -d '"' -f 4)
-          echo "Найдена актуальная база границ: $LATEST_URL"
+          echo "Актуальная ссылка: $LATEST_URL"
           if [ -n "$LATEST_URL" ]; then
             sed -i "s|https://github.com[^\"]*|$LATEST_URL|g" pom.xml
           fi
 
-      - name: Сборка проекта и скачивание карт (Maven)
-        run: mvn clean package -DskipTests
+      - name: Скачивание границ и компиляция (Maven)
+        run: mvn clean compile
 
-      - name: Поиск главного класса и генерация базы данных
+      - name: Подготовка папок ресурсов и запуск генератора
         run: |
-          MAIN_CLASS=$(grep -rn "public static void main" src/main/java | head -n 1 | sed -E 's|src/main/java/(.*)\.java:.*|\1|' | tr '/' '.')
-          echo "Запускаем генератор: $MAIN_CLASS"
-          java -Xmx4G -cp "target/classes:$(mvn dependency:build-classpath -Dmdep.outputFile=/dev/stdout -q)" "$MAIN_CLASS"
+          mkdir -p target/classes/output
+          cp -r src/main/resources/* target/classes/
+          mvn exec:java -Dexec.mainClass="net.haraldkreuzer.DatabaseCreator" -Dexec.args="" -DMAVEN_OPTS="-Xmx4G"
 
-      - name: Поиск сгенерированного файла базы и расчет контрольной суммы
-        id: find_db
+      - name: Поиск готового файла и расчет хеш-суммы
         run: |
-          DB_FILE=$(find target -type f -name "*.bin" | head -n 1)
-          echo "Найден файл: $DB_FILE"
+          DB_FILE=$(find target -type f -name "*.bin" -o -name "*database*" | grep -v "\.class" | head -n 1)
+          echo "Найден файл базы: $DB_FILE"
           ls -lh "$DB_FILE"
           cp "$DB_FILE" ./timezones.bin
           sha256sum timezones.bin > timezones.bin.sha256
 
-      - name: Публикация готовой базы в раздел Releases
+      - name: Публикация в раздел Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest-db
