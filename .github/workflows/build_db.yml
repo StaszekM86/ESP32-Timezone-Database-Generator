@@ -19,6 +19,34 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Автоматическая генерация свежего timezones.conf из официальной базы IANA
+        run: |
+          mkdir -p iana_src iana_compiled
+          echo "Скачиваем свежую базу правил IANA..."
+          curl -sL https://iana.org -o tzdata.tar.gz
+          tar -xzf tzdata.tar.gz -C iana_src
+          
+          # Компилируем правила IANA системным компилятором zic
+          zic -d iana_compiled iana_src/africa iana_src/antarctica iana_src/asia iana_src/australasia iana_src/europe iana_src/northamerica iana_src/southamerica iana_src/etcetera iana_src/backward
+          
+          # Извлекаем актуальные POSIX-строки из каждого скомпилированного файла и формируем новый timezones.conf
+          CONF_FILE="src/main/resources/timezones/timezones.conf"
+          > "$CONF_FILE"
+          
+          cd iana_compiled
+          find . -type f | sort | while read -r filepath; do
+            zone_name="${filepath#./}"
+            posix_str=$(tail -n 1 "$filepath")
+            if [ -n "$posix_str" ]; then
+              echo "${zone_name}=${posix_str}" >> "../$CONF_FILE"
+            fi
+          done
+          cd ..
+          
+          echo "Сгенерировано актуальных зон IANA: $(wc -l < "$CONF_FILE")"
+          echo "Проверка Турции и Москвы в новом конфиге:"
+          grep -E "^(Europe/Istanbul|Europe/Moscow|Asia/Vladivostok)=" "$CONF_FILE"
+
       - name: Компиляция Java-кода
         run: mvn clean test-compile -Ddownload.skip=true
 
@@ -30,14 +58,10 @@ jobs:
           mkdir -p target/classes/output
           cp -r src/main/resources/* target/classes/
           
-          # Скачиваем актуальный архив границ через официальный GitHub CLI
           gh release download --repo evansiroky/timezone-boundary-builder --pattern "*timezones.shapefile.zip" --output shapes.zip
-          
           unzip -q shapes.zip -d extracted_shapes
           
-          # Находим .shp файл и переносим его со всеми индексами строго под именем combined-shapefile
           SHP_PATH=$(find extracted_shapes -name "*.shp" | head -n 1)
-          echo "Найден исходный файл: $SHP_PATH"
           SHP_DIR=$(dirname "$SHP_PATH")
           SHP_BASE=$(basename "$SHP_PATH" .shp)
           
@@ -46,9 +70,6 @@ jobs:
               cp "$SHP_DIR/$SHP_BASE.$ext" "target/classes/timezones.shapefile/combined-shapefile.$ext"
             fi
           done
-          
-          echo "Содержимое папки target/classes/timezones.shapefile/:"
-          ls -la target/classes/timezones.shapefile/
 
       - name: Запуск генератора базы данных
         run: |
@@ -65,7 +86,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest-db
-          name: "Актуальная база часовых поясов (Автосборка)"
+          name: "Актуальная база часовых поясов (Автосборка IANA)"
           files: |
             timezones.bin
             timezones.bin.sha256
