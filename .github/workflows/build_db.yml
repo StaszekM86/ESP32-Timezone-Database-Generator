@@ -30,16 +30,31 @@ jobs:
       - name: Скачивание границ и компиляция (Maven)
         run: mvn clean compile
 
-      - name: Подготовка папок ресурсов и запуск генератора
+      - name: Подготовка файлов и запуск генератора
         run: |
+          mkdir -p target/classes/timezones.shapefile
           mkdir -p target/classes/output
           cp -r src/main/resources/* target/classes/
-          mvn exec:java -Dexec.mainClass="net.haraldkreuzer.DatabaseCreator" -Dexec.args="" -DMAVEN_OPTS="-Xmx4G"
+          
+          # Находим скачанный .shp файл (даже если он во вложенной папке dist) и переносим в корень timezones.shapefile
+          SHP_PATH=$(find src/main/resources target/classes -name "*.shp" | head -n 1)
+          echo "Найден исходный shapefile: $SHP_PATH"
+          SHP_DIR=$(dirname "$SHP_PATH")
+          SHP_BASE=$(basename "$SHP_PATH" .shp)
+          
+          # Копируем все связанные файлы (.shp, .shx, .dbf, .prj, .cpg) под точным именем combined-shapefile
+          for ext in shp shx dbf prj cpg; do
+            if [ -f "$SHP_DIR/$SHP_BASE.$ext" ]; then
+              cp "$SHP_DIR/$SHP_BASE.$ext" "target/classes/timezones.shapefile/combined-shapefile.$ext"
+            fi
+          done
+          
+          ls -la target/classes/timezones.shapefile/
+          mvn exec:java -Dexec.mainClass="net.haraldkreuzer.DatabaseCreator" -DMAVEN_OPTS="-Xmx6G"
 
-      - name: Поиск готового файла и расчет хеш-суммы
+      - name: Проверка результата и расчет хеш-суммы
         run: |
-          DB_FILE=$(find target -type f -name "*.bin" -o -name "*database*" | grep -v "\.class" | head -n 1)
-          echo "Найден файл базы: $DB_FILE"
+          DB_FILE="target/classes/output/timezones.bin"
           ls -lh "$DB_FILE"
           cp "$DB_FILE" ./timezones.bin
           sha256sum timezones.bin > timezones.bin.sha256
