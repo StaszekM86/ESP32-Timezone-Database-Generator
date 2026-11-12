@@ -19,7 +19,7 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Компиляция Java-кода (без скачивания карт через Maven)
+      - name: Компиляция Java-кода
         run: mvn clean test-compile -Ddownload.skip=true
 
       - name: Прямое скачивание и распаковка актуальных границ мира
@@ -28,9 +28,9 @@ jobs:
           mkdir -p target/classes/output
           cp -r src/main/resources/* target/classes/
           
-          # Получаем прямую ссылку на самый свежий архив границ
+          # Скачиваем актуальный релиз с GitHub API
           LATEST_URL=$(curl -s https://github.com | grep "browser_download_url.*timezones\.shapefile\.zip\"" | cut -d '"' -f 4)
-          echo "Скачиваем свежие границы: $LATEST_URL"
+          echo "Ссылка на архив границ: $LATEST_URL"
           
           curl -L "$LATEST_URL" -o shapes.zip
           unzip -q shapes.zip -d extracted_shapes
@@ -47,8 +47,9 @@ jobs:
             fi
           done
           
-          echo "Проверка содержимого папки ресурсов перед стартом:"
+          echo "Содержимое папки target/classes/timezones/:"
           ls -la target/classes/timezones/
+          echo "Содержимое папки target/classes/timezones.shapefile/:"
           ls -la target/classes/timezones.shapefile/
 
       - name: Запуск генератора базы данных
