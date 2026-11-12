@@ -1,0 +1,59 @@
+name: Build Timezone Database
+
+on:
+  # Возможность запустить сборку вручную кнопкой в любой момент
+  workflow_dispatch:
+  # Автоматический запуск 1-го числа каждого месяца в 03:00 UTC
+  schedule:
+    - cron: '0 3 1 * *'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Скачивание кода репозитория
+        uses: actions/checkout@v4
+
+      - name: Установка Java 17 (требуется в pom.xml)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Обновление ссылки на самые свежие границы мира (GitHub API)
+        run: |
+          LATEST_URL=$(curl -s https://github.com | grep "browser_download_url.*timezones\.shapefile\.zip\"" | cut -d '"' -f 4)
+          echo "Найдена актуальная база границ: $LATEST_URL"
+          if [ -n "$LATEST_URL" ]; then
+            sed -i "s|https://github.com[^\"]*|$LATEST_URL|g" pom.xml
+          fi
+
+      - name: Сборка проекта и скачивание карт (Maven)
+        run: mvn clean package -DskipTests
+
+      - name: Поиск главного класса и генерация базы данных
+        run: |
+          MAIN_CLASS=$(grep -rn "public static void main" src/main/java | head -n 1 | sed -E 's|src/main/java/(.*)\.java:.*|\1|' | tr '/' '.')
+          echo "Запускаем генератор: $MAIN_CLASS"
+          java -Xmx4G -cp "target/classes:$(mvn dependency:build-classpath -Dmdep.outputFile=/dev/stdout -q)" "$MAIN_CLASS"
+
+      - name: Поиск сгенерированного файла базы и расчет контрольной суммы
+        id: find_db
+        run: |
+          DB_FILE=$(find target -type f -name "*.bin" | head -n 1)
+          echo "Найден файл: $DB_FILE"
+          ls -lh "$DB_FILE"
+          cp "$DB_FILE" ./timezones.bin
+          sha256sum timezones.bin > timezones.bin.sha256
+
+      - name: Публикация готовой базы в раздел Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-db
+          name: "Актуальная база часовых поясов (Автосборка)"
+          files: |
+            timezones.bin
+            timezones.bin.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
