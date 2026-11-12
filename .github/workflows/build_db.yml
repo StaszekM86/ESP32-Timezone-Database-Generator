@@ -14,43 +14,46 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Установка Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Обновление ссылки на свежие границы мира
-        run: |
-          LATEST_URL=$(curl -s https://github.com | grep "browser_download_url.*timezones\.shapefile\.zip\"" | cut -d '"' -f 4)
-          echo "Актуальная ссылка: $LATEST_URL"
-          if [ -n "$LATEST_URL" ]; then
-            sed -i "s|https://github.com[^\"]*|$LATEST_URL|g" pom.xml
-          fi
+      - name: Компиляция Java-кода (без скачивания карт через Maven)
+        run: mvn clean test-compile -Ddownload.skip=true
 
-      - name: Скачивание границ и компиляция (Maven)
-        run: mvn clean compile
-
-      - name: Подготовка файлов и запуск генератора
+      - name: Прямое скачивание и распаковка актуальных границ мира
         run: |
           mkdir -p target/classes/timezones.shapefile
           mkdir -p target/classes/output
           cp -r src/main/resources/* target/classes/
           
-          # Находим скачанный .shp файл (даже если он во вложенной папке dist) и переносим в корень timezones.shapefile
-          SHP_PATH=$(find src/main/resources target/classes -name "*.shp" | head -n 1)
-          echo "Найден исходный shapefile: $SHP_PATH"
+          # Получаем прямую ссылку на самый свежий архив границ
+          LATEST_URL=$(curl -s https://github.com | grep "browser_download_url.*timezones\.shapefile\.zip\"" | cut -d '"' -f 4)
+          echo "Скачиваем свежие границы: $LATEST_URL"
+          
+          curl -L "$LATEST_URL" -o shapes.zip
+          unzip -q shapes.zip -d extracted_shapes
+          
+          # Находим .shp файл и переносим его со всеми индексами строго под именем combined-shapefile
+          SHP_PATH=$(find extracted_shapes -name "*.shp" | head -n 1)
+          echo "Найден исходный файл: $SHP_PATH"
           SHP_DIR=$(dirname "$SHP_PATH")
           SHP_BASE=$(basename "$SHP_PATH" .shp)
           
-          # Копируем все связанные файлы (.shp, .shx, .dbf, .prj, .cpg) под точным именем combined-shapefile
           for ext in shp shx dbf prj cpg; do
             if [ -f "$SHP_DIR/$SHP_BASE.$ext" ]; then
               cp "$SHP_DIR/$SHP_BASE.$ext" "target/classes/timezones.shapefile/combined-shapefile.$ext"
             fi
           done
           
+          echo "Проверка содержимого папки ресурсов перед стартом:"
+          ls -la target/classes/timezones/
           ls -la target/classes/timezones.shapefile/
-          mvn exec:java -Dexec.mainClass="net.haraldkreuzer.DatabaseCreator" -DMAVEN_OPTS="-Xmx6G"
+
+      - name: Запуск генератора базы данных
+        run: |
+          mvn exec:java -Dexec.mainClass="net.haraldkreuzer.DatabaseCreator" -Ddownload.skip=true -DMAVEN_OPTS="-Xmx6G"
 
       - name: Проверка результата и расчет хеш-суммы
         run: |
