@@ -19,22 +19,25 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Обновление системной базы IANA и генерация timezones.conf
+      - name: Обновление системной базы IANA и генерация чистого timezones.conf
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq tzdata
           CONF_FILE="src/main/resources/timezones/timezones.conf"
           > "$CONF_FILE"
           
           cd /usr/share/zoneinfo
+          # Берем только чистые континентальные зоны и отсекаем дубликаты
           find Africa America Antarctica Arctic Asia Atlantic Australia Europe Indian Pacific -type f | sort | while read -r zone_name; do
-            posix_str=$(tail -n 1 "$zone_name")
-            if [ -n "$posix_str" ]; then
+            # Читаем последнюю строку файла tzif и очищаем от скрытых символов переноса
+            posix_str=$(tail -n 1 "$zone_name" | tr -d '\r\n')
+            # Проверяем, что строка похожа на валидную POSIX-формулу (не пустая и короче 60 символов)
+            if [ -n "$posix_str" ] && [ ${#posix_str} -lt 60 ]; then
               echo "${zone_name}=${posix_str}" >> "$GITHUB_WORKSPACE/$CONF_FILE"
             fi
           done
           cd "$GITHUB_WORKSPACE"
           
-          echo "Сгенерировано актуальных зон IANA: $(wc -l < "$CONF_FILE")"
+          echo "Сгенерировано чистых зон IANA: $(wc -l < "$CONF_FILE")"
           grep -E "^(Europe/Istanbul|Europe/Moscow|Asia/Vladivostok)=" "$CONF_FILE"
 
       - name: Компиляция Java-кода
@@ -80,5 +83,6 @@ jobs:
           files: |
             timezones.bin
             timezones.bin.sha256
+            src/main/resources/timezones/timezones.conf
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
