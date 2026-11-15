@@ -26,7 +26,7 @@ jobs:
           > "$CONF_FILE"
           
           cd /usr/share/zoneinfo
-          find Africa America Antarctica Arctic Asia Atlantic Australia Europe Indian Pacific -type f | sort | while read -r zone_name; do
+          find -L Africa America Antarctica Arctic Asia Atlantic Australia Etc Europe Indian Pacific -type f | sort | while read -r zone_name; do
             posix_str=$(tail -n 1 "$zone_name" | tr -d '\r\n')
             if [ -n "$posix_str" ] && [ ${#posix_str} -lt 60 ]; then
               echo "${zone_name}=${posix_str}" >> "$GITHUB_WORKSPACE/$CONF_FILE"
@@ -35,7 +35,7 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           
           echo "Сгенерировано актуальных зон IANA: $(wc -l < "$CONF_FILE")"
-          grep -E "^(Europe/Istanbul|Europe/Moscow|Asia/Vladivostok)=" "$CONF_FILE"
+          grep -E "^(Europe/Istanbul|Europe/Moscow|Asia/Vladivostok|Europe/Bratislava)=" "$CONF_FILE"
 
       - name: Компиляция Java-кода
         run: mvn clean test-compile -Ddownload.skip=true
@@ -71,6 +71,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           DB_FILE="target/classes/output/timezones.bin"
+          CONF_FILE="src/main/resources/timezones/timezones.conf"
           cp "$DB_FILE" ./timezones.bin
           
           # Скачиваем предыдущую версию из Releases для побайтового сравнения
@@ -86,9 +87,9 @@ jobs:
             echo "Предыдущий релиз не найден, выполняем первую публикацию..."
           fi
           
-          # Считаем контрольную сумму и публикуем обновленный релиз
+          # Считаем контрольную сумму и публикуем все 3 файла в обновленный релиз
           sha256sum timezones.bin > timezones.bin.sha256
           gh release delete latest-db --yes 2>/dev/null || true
-          gh release create latest-db timezones.bin timezones.bin.sha256 \
+          gh release create latest-db timezones.bin timezones.bin.sha256 "$CONF_FILE" \
             --title "Актуальная база часовых поясов (Обновлено: $(date +%Y-%m-%d))" \
-            --notes "Автоматическая сборка. Обновлено из-за реальных изменений в IANA или границах."
+            --notes "Автоматическая сборка. Включает актуальные правила IANA и границы."
