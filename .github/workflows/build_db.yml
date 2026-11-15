@@ -26,18 +26,15 @@ jobs:
           > "$CONF_FILE"
           
           cd /usr/share/zoneinfo
-          # Берем только чистые континентальные зоны и отсекаем дубликаты
           find Africa America Antarctica Arctic Asia Atlantic Australia Europe Indian Pacific -type f | sort | while read -r zone_name; do
-            # Читаем последнюю строку файла tzif и очищаем от скрытых символов переноса
             posix_str=$(tail -n 1 "$zone_name" | tr -d '\r\n')
-            # Проверяем, что строка похожа на валидную POSIX-формулу (не пустая и короче 60 символов)
             if [ -n "$posix_str" ] && [ ${#posix_str} -lt 60 ]; then
               echo "${zone_name}=${posix_str}" >> "$GITHUB_WORKSPACE/$CONF_FILE"
             fi
           done
           cd "$GITHUB_WORKSPACE"
           
-          echo "Сгенерировано чистых зон IANA: $(wc -l < "$CONF_FILE")"
+          echo "Сгенерировано актуальных зон IANA: $(wc -l < "$CONF_FILE")"
           grep -E "^(Europe/Istanbul|Europe/Moscow|Asia/Vladivostok)=" "$CONF_FILE"
 
       - name: Компиляция Java-кода
@@ -68,21 +65,30 @@ jobs:
         run: |
           mvn exec:java -Dexec.mainClass="net.haraldkreuzer.DatabaseCreator" -Ddownload.skip=true -DMAVEN_OPTS="-Xmx6G"
 
-      - name: Проверка результата и расчет хеш-суммы
-        run: |
-          DB_FILE="target/classes/output/timezones.bin"
-          ls -lh "$DB_FILE"
-          cp "$DB_FILE" ./timezones.bin
-          sha256sum timezones.bin > timezones.bin.sha256
-
-      - name: Публикация в раздел Releases
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: latest-db
-          name: "Актуальная база часовых поясов (Автосборка IANA)"
-          files: |
-            timezones.bin
-            timezones.bin.sha256
-            src/main/resources/timezones/timezones.conf
+      - name: Проверка реальных изменений (без учета даты в заголовке) и публикация
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DB_FILE="target/classes/output/timezones.bin"
+          cp "$DB_FILE" ./timezones.bin
+          
+          # Скачиваем предыдущую версию из Releases для побайтового сравнения
+          if gh release download latest-db --pattern "timezones.bin" --output old_timezones.bin 2>/dev/null; then
+            echo "Сравниваем содержимое новой и старой баз (игнорируя 32 байта заголовка с датой)..."
+            if cmp -s -i 32 timezones.bin old_timezones.bin; then
+              echo ">>> Изменений в границах и правилах IANA нет. Публикация не требуется!"
+              exit 0
+            else
+              echo ">>> Обнаружены реальные изменения в часовых поясах! Обновляем релиз..."
+            fi
+          else
+            echo "Предыдущий релиз не найден, выполняем первую публикацию..."
+          fi
+          
+          # Считаем контрольную сумму и публикуем обновленный релиз
+          sha256sum timezones.bin > timezones.bin.sha256
+          gh release delete latest-db --yes 2>/dev/null || true
+          gh release create latest-db timezones.bin timezones.bin.sha256 \
+            --title "Актуальная база часовых поясов (Обновлено: $(date +%Y-%m-%d))" \
+            --notes "Автоматическая сборка. Обновлено из-за реальных изменений в IANA или границах."
