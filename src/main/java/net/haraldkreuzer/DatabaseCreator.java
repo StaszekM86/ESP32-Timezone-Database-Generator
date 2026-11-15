@@ -24,7 +24,7 @@ public class DatabaseCreator {
     private static final Logger LOGGER = LoggerFactory.getLogger(DatabaseCreator.class);
 
     final static Byte VERSION = 2;
-    final static Byte PRECISION = 19;
+    final static Byte PRECISION = 18;
     final static String SIGNATURE = "TZDB";
 
     final static String DELIMITER = "=";
